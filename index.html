@@ -212,6 +212,15 @@ form.entry input:focus{border-color:var(--accent)}
     <ul id="rows" class="rows"></ul>
     <div id="emptyList" class="empty" hidden></div>
   </section>
+  <section class="card">
+    <h2>Backup</h2>
+    <p class="empty" style="margin:0 0 12px">Entries are saved only on this phone. Save a copy now and then, and keep it somewhere safe such as Google Drive or WhatsApp.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button id="bkSave" class="btn ghost" type="button">Save backup file</button>
+      <button id="bkLoad" class="btn ghost" type="button">Restore from file</button>
+    </div>
+    <input id="bkFile" type="file" accept="application/json,.json" hidden>
+  </section>
 </main>
 <div id="toast" class="toast" role="status" hidden></div>
 
@@ -423,6 +432,38 @@ form.entry input:focus{border-color:var(--accent)}
   checked=true;
   entries=load();
   render();
+  /* ---- backup ---- */
+  $('bkSave').onclick=function(){
+    try{
+      var data=JSON.stringify({app:'jcb-earnings',saved:new Date().toISOString(),entries:entries},null,2);
+      var blob=new Blob([data],{type:'application/json'});
+      var a=document.createElement('a');a.href=URL.createObjectURL(blob);
+      a.download='jcb-earnings-backup-'+todayStr+'.json';
+      document.body.appendChild(a);a.click();a.remove();
+      setTimeout(function(){URL.revokeObjectURL(a.href)},4000);
+      toast('Backup saved to Downloads');
+    }catch(e){toast('Could not save backup')}
+  };
+  $('bkLoad').onclick=function(){$('bkFile').click()};
+  $('bkFile').addEventListener('change',function(){
+    var input=this,f=input.files&&input.files[0];if(!f)return;
+    var r=new FileReader();
+    r.onload=function(){
+      try{
+        var j=JSON.parse(r.result),arr=Array.isArray(j)?j:j.entries;
+        if(!Array.isArray(arr))throw new Error('bad');
+        var n=0;
+        arr.forEach(function(o){
+          if(!o||typeof o.date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(o.date))return;
+          var rec={date:o.date,client:String(o.client||'').slice(0,80),hours:num(o.hours),rate:num(o.rate),fuel:num(o.fuel),maintenance:num(o.maintenance),tractor:num(o.tractor),misc:num(o.misc),paid:!!o.paid,example:false,id:String(o.id||newId())};
+          var i=idx(rec.id);if(i<0)entries.push(rec);else entries[i]=rec;n++;
+        });
+        persist();render();toast(n+' entries restored');
+      }catch(e){toast('That file is not a valid backup')}
+      input.value='';
+    };
+    r.readAsText(f);
+  });
   if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){})})}
 })();
 </script>
