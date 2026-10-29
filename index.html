@@ -216,10 +216,13 @@ form.entry input:focus{border-color:var(--accent)}
     <h2>Backup</h2>
     <p class="empty" style="margin:0 0 12px">Entries are saved only on this phone. Save a copy now and then, and keep it somewhere safe such as Google Drive or WhatsApp.</p>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
-      <button id="bkSave" class="btn ghost" type="button">Save backup file</button>
-      <button id="bkLoad" class="btn ghost" type="button">Restore from file</button>
+      <button id="bkSave" class="btn ghost" type="button" style="flex:1 1 44%">Save backup file</button>
+      <button id="bkCopy" class="btn ghost" type="button" style="flex:1 1 44%">Copy backup text</button>
+      <button id="bkLoad" class="btn ghost" type="button" style="flex:1 1 44%">Restore from file</button>
+      <button id="bkPaste" class="btn ghost" type="button" style="flex:1 1 44%">Paste text to restore</button>
     </div>
-    <input id="bkFile" type="file" accept="application/json,.json" hidden>
+    <textarea id="bkText" hidden spellcheck="false" style="width:100%;min-height:130px;margin-top:12px;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:10px;font:12px/1.4 ui-monospace,Consolas,monospace"></textarea>
+    <input id="bkFile" type="file" hidden>
   </section>
 </main>
 <div id="toast" class="toast" role="status" hidden></div>
@@ -433,37 +436,51 @@ form.entry input:focus{border-color:var(--accent)}
   entries=load();
   render();
   /* ---- backup ---- */
-  $('bkSave').onclick=function(){
+  function backupText(){return JSON.stringify({app:'jcb-earnings',saved:new Date().toISOString(),entries:entries},null,2)}
+  function restoreText(text){
     try{
-      var data=JSON.stringify({app:'jcb-earnings',saved:new Date().toISOString(),entries:entries},null,2);
-      var blob=new Blob([data],{type:'application/json'});
-      var a=document.createElement('a');a.href=URL.createObjectURL(blob);
-      a.download='jcb-earnings-backup-'+todayStr+'.json';
+      var j=JSON.parse(text),arr=Array.isArray(j)?j:j.entries;
+      if(!Array.isArray(arr))throw new Error('bad');
+      var n=0;
+      arr.forEach(function(o){
+        if(!o||typeof o.date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(o.date))return;
+        var rec={date:o.date,client:String(o.client||'').slice(0,80),hours:num(o.hours),rate:num(o.rate),fuel:num(o.fuel),maintenance:num(o.maintenance),tractor:num(o.tractor),misc:num(o.misc),paid:!!o.paid,example:false,id:String(o.id||newId())};
+        var i=idx(rec.id);if(i<0)entries.push(rec);else entries[i]=rec;n++;
+      });
+      persist();render();toast(n+' entries restored');return true;
+    }catch(e){toast('That is not a valid backup');return false}
+  }
+  $('bkSave').onclick=async function(){
+    var name='jcb-earnings-backup-'+todayStr+'.json',text=backupText();
+    try{
+      var file=new File([text],name,{type:'application/json'});
+      if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:'JCB Earnings backup'});toast('Backup shared');return}
+    }catch(e){if(e&&e.name==='AbortError')return}
+    try{
+      var blob=new Blob([text],{type:'application/json'});
+      var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;
       document.body.appendChild(a);a.click();a.remove();
       setTimeout(function(){URL.revokeObjectURL(a.href)},4000);
       toast('Backup saved to Downloads');
-    }catch(e){toast('Could not save backup')}
+    }catch(e){toast('Could not save backup. Try Copy backup text.')}
+  };
+  $('bkCopy').onclick=async function(){
+    var text=backupText(),box=$('bkText');
+    try{await navigator.clipboard.writeText(text);toast('Backup copied. Paste it into Notes or WhatsApp.')}
+    catch(e){box.hidden=false;box.value=text;box.focus();box.select();toast('Select all and copy the text')}
   };
   $('bkLoad').onclick=function(){$('bkFile').click()};
   $('bkFile').addEventListener('change',function(){
     var input=this,f=input.files&&input.files[0];if(!f)return;
     var r=new FileReader();
-    r.onload=function(){
-      try{
-        var j=JSON.parse(r.result),arr=Array.isArray(j)?j:j.entries;
-        if(!Array.isArray(arr))throw new Error('bad');
-        var n=0;
-        arr.forEach(function(o){
-          if(!o||typeof o.date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(o.date))return;
-          var rec={date:o.date,client:String(o.client||'').slice(0,80),hours:num(o.hours),rate:num(o.rate),fuel:num(o.fuel),maintenance:num(o.maintenance),tractor:num(o.tractor),misc:num(o.misc),paid:!!o.paid,example:false,id:String(o.id||newId())};
-          var i=idx(rec.id);if(i<0)entries.push(rec);else entries[i]=rec;n++;
-        });
-        persist();render();toast(n+' entries restored');
-      }catch(e){toast('That file is not a valid backup')}
-      input.value='';
-    };
+    r.onload=function(){restoreText(r.result);input.value=''};
     r.readAsText(f);
   });
+  $('bkPaste').onclick=function(){
+    var box=$('bkText');
+    if(box.hidden||!box.value.trim()){box.hidden=false;box.value='';box.placeholder='Paste your backup text here, then tap "Paste text to restore" again';box.focus();return}
+    if(restoreText(box.value)){box.value='';box.hidden=true}
+  };
   if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){})})}
 })();
 </script>
